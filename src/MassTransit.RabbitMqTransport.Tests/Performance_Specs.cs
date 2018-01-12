@@ -21,7 +21,7 @@ namespace MassTransit.RabbitMqTransport.Tests
     using TestFramework.Messages;
 
 
-    [TestFixture, Explicit]
+    [TestFixture, Explicit, Category("SlowAF")]
     public class Performance_of_the_RabbitMQ_transport :
         RabbitMqTestFixture
     {
@@ -63,7 +63,7 @@ namespace MassTransit.RabbitMqTransport.Tests
             configurator.PrefetchCount = 100;
         }
 
-        protected override void ConfigureRabbitMqReceiveEndoint(IRabbitMqReceiveEndpointConfigurator configurator)
+        protected override void ConfigureRabbitMqReceiveEndpoint(IRabbitMqReceiveEndpointConfigurator configurator)
         {
             configurator.PrefetchCount = 100;
 
@@ -81,7 +81,8 @@ namespace MassTransit.RabbitMqTransport.Tests
         }
     }
 
-    [TestFixture, Explicit]
+
+    [TestFixture, Explicit, Category("SlowAF")]
     public class Performance_of_the_RabbitMQ_transport_non_durable :
         RabbitMqTestFixture
     {

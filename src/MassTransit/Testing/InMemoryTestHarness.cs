@@ -13,14 +13,13 @@
 namespace MassTransit.Testing
 {
     using System;
-    using Pipeline.Pipes;
     using Transports.InMemory;
 
 
     public class InMemoryTestHarness :
         BusTestHarness
     {
-        InMemoryHost _inMemoryHost;
+        IInMemoryHost _inMemoryHost;
 
         public InMemoryTestHarness(string virtualHost = null)
         {
@@ -38,13 +37,6 @@ namespace MassTransit.Testing
 
         public override Uri InputQueueAddress { get; }
 
-        public IPublishEndpointProvider PublishEndpointProvider => new InMemoryPublishEndpointProvider(Bus, _inMemoryHost, PublishPipe.Empty);
-
-        public IInMemoryTransport GetTransport(string queueName)
-        {
-            return _inMemoryHost.GetTransport(queueName);
-        }
-
         public event Action<IInMemoryBusFactoryConfigurator> OnConfigureInMemoryBus;
         public event Action<IInMemoryReceiveEndpointConfigurator> OnConfigureInMemoryReceiveEndpoint;
 
@@ -60,15 +52,13 @@ namespace MassTransit.Testing
 
         protected override IBusControl CreateBus()
         {
-            return MassTransit.Bus.Factory.CreateUsingInMemory(x =>
+            return MassTransit.Bus.Factory.CreateUsingInMemory(BaseAddress, x =>
             {
-                _inMemoryHost = new InMemoryHost(Environment.ProcessorCount, BaseAddress);
-
-                x.SetHost(_inMemoryHost);
-
                 ConfigureBus(x);
 
                 ConfigureInMemoryBus(x);
+
+                _inMemoryHost = x.Host;
 
                 x.ReceiveEndpoint(InputQueueName, configurator =>
                 {

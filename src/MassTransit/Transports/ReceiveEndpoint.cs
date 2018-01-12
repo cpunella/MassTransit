@@ -27,7 +27,7 @@ namespace MassTransit.Transports
     /// filters on the receive context. 
     /// </summary>
     public class ReceiveEndpoint :
-        IReceiveEndpoint
+        IReceiveEndpointControl
     {
         readonly ReceiveEndpointObservable _observers;
         readonly IReceivePipe _receivePipe;
@@ -44,7 +44,7 @@ namespace MassTransit.Transports
             _handle = receiveTransport.ConnectReceiveTransportObserver(new Observer(this));
         }
 
-        ReceiveEndpointHandle IReceiveEndpoint.Start()
+        ReceiveEndpointHandle IReceiveEndpointControl.Start()
         {
             var transportHandle = _receiveTransport.Start(_receivePipe);
 
@@ -88,9 +88,14 @@ namespace MassTransit.Transports
             return _receivePipe.ConsumePipe.ConnectRequestPipe(requestId, pipe);
         }
 
-        public ConnectHandle ConnectPublishObserver(IPublishObserver observer)
+        ConnectHandle IPublishObserverConnector.ConnectPublishObserver(IPublishObserver observer)
         {
             return _receiveTransport.ConnectPublishObserver(observer);
+        }
+
+        ConnectHandle ISendObserverConnector.ConnectSendObserver(ISendObserver observer)
+        {
+            return _receiveTransport.ConnectSendObserver(observer);
         }
 
 

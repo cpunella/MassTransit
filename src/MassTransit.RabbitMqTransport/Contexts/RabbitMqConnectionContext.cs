@@ -12,11 +12,13 @@
 // specific language governing permissions and limitations under the License.
 namespace MassTransit.RabbitMqTransport.Contexts
 {
+    using System;
     using System.Threading.Tasks;
     using GreenPipes;
     using GreenPipes.Payloads;
     using Logging;
     using RabbitMQ.Client;
+    using Topology;
     using Util;
 
 
@@ -27,30 +29,33 @@ namespace MassTransit.RabbitMqTransport.Contexts
         static readonly ILog _log = Logger.Get<RabbitMqConnectionContext>();
 
         readonly IConnection _connection;
-        readonly RabbitMqHostSettings _hostSettings;
         readonly ITaskParticipant _participant;
         readonly LimitedConcurrencyLevelTaskScheduler _taskScheduler;
 
-        public RabbitMqConnectionContext(IConnection connection, RabbitMqHostSettings hostSettings, ITaskSupervisor supervisor)
-            : this(connection, hostSettings,
-                supervisor.CreateParticipant($"{TypeMetadataCache<RabbitMqConnectionContext>.ShortName} - {hostSettings.ToDebugString()}"))
+        public RabbitMqConnectionContext(IConnection connection, RabbitMqHostSettings hostSettings, IRabbitMqHostTopology topology, string description, ITaskSupervisor supervisor)
+            : this(connection, hostSettings, description, supervisor.CreateParticipant($"{TypeMetadataCache<RabbitMqConnectionContext>.ShortName} - {description}"))
         {
+            Topology = topology;
         }
 
-        RabbitMqConnectionContext(IConnection connection, RabbitMqHostSettings hostSettings, ITaskParticipant participant)
+        RabbitMqConnectionContext(IConnection connection, RabbitMqHostSettings hostSettings, string description, ITaskParticipant participant)
             : base(new PayloadCache(), participant.StoppedToken)
         {
             _connection = connection;
-            _hostSettings = hostSettings;
-
+            HostSettings = hostSettings;
             _participant = participant;
+
+            Description = description;
 
             _taskScheduler = new LimitedConcurrencyLevelTaskScheduler(1);
 
             connection.ConnectionShutdown += OnConnectionShutdown;
         }
 
-        public RabbitMqHostSettings HostSettings => _hostSettings;
+        public IRabbitMqHostTopology Topology { get; }
+        public RabbitMqHostSettings HostSettings { get; }
+        public string Description { get; }
+        public Uri HostAddress => HostSettings.HostAddress;
 
         public Task<IModel> CreateModel()
         {
@@ -65,12 +70,12 @@ namespace MassTransit.RabbitMqTransport.Contexts
             _connection.ConnectionShutdown -= OnConnectionShutdown;
 
             if (_log.IsDebugEnabled)
-                _log.DebugFormat("Disconnecting: {0}", _hostSettings.ToDebugString());
+                _log.DebugFormat("Disconnecting: {0}", Description);
 
             _connection.Cleanup(200, "Connection Disposed");
 
             if (_log.IsDebugEnabled)
-                _log.DebugFormat("Disconnected: {0}", _hostSettings.ToDebugString());
+                _log.DebugFormat("Disconnected: {0}", Description);
 
             _participant.SetComplete();
         }

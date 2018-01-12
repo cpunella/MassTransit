@@ -1,4 +1,4 @@
-// Copyright 2007-2016 Chris Patterson, Dru Sellers, Travis Smith, et. al.
+// Copyright 2007-2017 Chris Patterson, Dru Sellers, Travis Smith, et. al.
 //  
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use
 // this file except in compliance with the License. You may obtain a copy of the 
@@ -10,18 +10,19 @@
 // under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR 
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the 
 // specific language governing permissions and limitations under the License.
-namespace MassTransit.AzureServiceBusTransport.Configurators
+namespace MassTransit.AzureServiceBusTransport.Configuration.Configurators
 {
     using System;
     using System.Collections.Generic;
-    using System.Linq;
-    using EndpointConfigurators;
+    using EndpointSpecifications;
     using GreenPipes;
-    using GreenPipes.Specifications;
     using MassTransit.Builders;
     using MassTransit.Pipeline;
     using Pipeline;
     using Settings;
+    using Specifications;
+    using Topology;
+    using Topology.Configuration;
     using Transport;
     using Transports;
 
@@ -32,18 +33,19 @@ namespace MassTransit.AzureServiceBusTransport.Configurators
         IReceiveEndpointSpecification<IBusBuilder>
     {
         readonly BaseClientSettings _settings;
+        readonly IEndpointEntityConfigurator _configurator;
         IPublishEndpointProvider _publishEndpointProvider;
         ISendEndpointProvider _sendEndpointProvider;
 
-        protected ServiceBusEndpointSpecification(IServiceBusHost host, BaseClientSettings settings, IConsumePipe consumePipe = null)
-            : base(consumePipe)
+        protected ServiceBusEndpointSpecification(IServiceBusHost host, BaseClientSettings settings, IEndpointEntityConfigurator configurator, IServiceBusEndpointConfiguration configuration)
+            : base(configuration)
         {
             Host = host;
             _settings = settings;
+            _configurator = configurator;
         }
 
         public ISendEndpointProvider SendEndpointProvider => _sendEndpointProvider;
-
         public IPublishEndpointProvider PublishEndpointProvider => _publishEndpointProvider;
 
         public IServiceBusHost Host { get; }
@@ -68,72 +70,72 @@ namespace MassTransit.AzureServiceBusTransport.Configurators
 
         public int PrefetchCount
         {
-            set { _settings.PrefetchCount = value; }
-        }
+            set => _settings.PrefetchCount = value; }
 
         public TimeSpan AutoDeleteOnIdle
         {
-            set { _settings.AutoDeleteOnIdle = value; }
+            set
+            {
+                _configurator.AutoDeleteOnIdle = value;
+                
+                Changed(nameof(AutoDeleteOnIdle));
+            }
         }
 
         public TimeSpan DefaultMessageTimeToLive
         {
-            set { _settings.DefaultMessageTimeToLive = value; }
-        }
+            set => _configurator.DefaultMessageTimeToLive = value; }
 
         public bool EnableBatchedOperations
         {
-            set { _settings.EnableBatchedOperations = value; }
-        }
+            set => _configurator.EnableBatchedOperations = value; }
 
         public bool EnableDeadLetteringOnMessageExpiration
         {
-            set { _settings.EnableDeadLetteringOnMessageExpiration = value; }
-        }
+            set => _configurator.EnableDeadLetteringOnMessageExpiration = value; }
 
         public string ForwardDeadLetteredMessagesTo
         {
-            set { _settings.ForwardDeadLetteredMessagesTo = value; }
-        }
+            set => _configurator.ForwardDeadLetteredMessagesTo = value; }
 
         public TimeSpan LockDuration
         {
-            set { _settings.LockDuration = value; }
-        }
+            set => _configurator.LockDuration = value; }
 
         public int MaxDeliveryCount
         {
-            set { _settings.MaxDeliveryCount = value; }
-        }
+            set => _configurator.MaxDeliveryCount = value; }
 
         public bool RequiresSession
         {
-            set { _settings.RequiresSession = value; }
-        }
+            set => _configurator.RequiresSession = value; }
 
         public string UserMetadata
         {
-            set { _settings.UserMetadata = value; }
-        }
+            set => _configurator.UserMetadata = value; }
 
         public virtual void SelectBasicTier()
         {
             _settings.SelectBasicTier();
         }
 
-        protected void ApplyReceiveEndpoint(IReceiveEndpointBuilder builder, IReceivePipe receivePipe, params IFilter<NamespaceContext>[] filters)
+        protected void ApplyReceiveEndpoint(IReceivePipe receivePipe, IServiceBusReceiveEndpointTopology receiveEndpointTopology,
+            Action<IPipeConfigurator<NamespaceContext>> configurePipe)
         {
-            _sendEndpointProvider = CreateSendEndpointProvider(builder);
-            _publishEndpointProvider = CreatePublishEndpointProvider(builder);
+            _sendEndpointProvider = receiveEndpointTopology.SendEndpointProvider;
+            _publishEndpointProvider = receiveEndpointTopology.PublishEndpointProvider;
 
-            IPipeSpecification<NamespaceContext>[] specifications = filters
-                .Concat(Enumerable.Repeat(_settings.RequiresSession
-                    ? (IFilter<NamespaceContext>)new MessageSessionReceiverFilter(receivePipe, _sendEndpointProvider, _publishEndpointProvider)
-                    : new MessageReceiverFilter(receivePipe, _sendEndpointProvider, _publishEndpointProvider), 1))
-                .Select(x => (IPipeSpecification<NamespaceContext>)new FilterPipeSpecification<NamespaceContext>(x))
-                .ToArray();
+            IPipe<NamespaceContext> pipe = Pipe.New<NamespaceContext>(x =>
+            {
+                configurePipe(x);
 
-            var transport = new ReceiveTransport(Host, _settings, _publishEndpointProvider, specifications);
+                if (_settings.RequiresSession)
+                    x.UseFilter(new MessageSessionReceiverFilter(receivePipe, receiveEndpointTopology));
+                else
+                    x.UseFilter(new MessageReceiverFilter(receivePipe, receiveEndpointTopology));
+            });
+
+            var transport = new ReceiveTransport(Host, _settings, _publishEndpointProvider, _sendEndpointProvider, pipe);
 
             var serviceBusHost = Host as ServiceBusHost;
             if (serviceBusHost == null)
@@ -144,27 +146,21 @@ namespace MassTransit.AzureServiceBusTransport.Configurators
 
         protected override Uri GetInputAddress()
         {
-            return _settings.GetInputAddress(Host.Settings.ServiceUri);
+            return _settings.GetInputAddress(Host.Settings.ServiceUri, _settings.Path);
         }
 
         protected override Uri GetErrorAddress()
         {
             var errorQueueName = _settings.Path + "_error";
 
-            var endpointSettings = GetReceiveEndpointSettings(errorQueueName);
-
-            return endpointSettings.GetInputAddress(Host.Settings.ServiceUri);
+            return _settings.GetInputAddress(Host.Settings.ServiceUri, errorQueueName);
         }
 
         protected override Uri GetDeadLetterAddress()
         {
             var skippedQueueName = _settings.Path + "_skipped";
 
-            var endpointSettings = GetReceiveEndpointSettings(skippedQueueName);
-
-            return endpointSettings.GetInputAddress(Host.Settings.ServiceUri);
+            return _settings.GetInputAddress(Host.Settings.ServiceUri, skippedQueueName);
         }
-
-        protected abstract ReceiveEndpointSettings GetReceiveEndpointSettings(string queueName);
     }
 }

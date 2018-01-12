@@ -25,6 +25,8 @@ namespace MassTransit.RabbitMqTransport.Contexts
     using Logging;
     using RabbitMQ.Client;
     using RabbitMQ.Client.Events;
+    using Specifications;
+    using Topology;
     using Util;
 
 
@@ -83,6 +85,8 @@ namespace MassTransit.RabbitMqTransport.Contexts
 
         ConnectionContext ModelContext.ConnectionContext => _connectionContext;
 
+        IRabbitMqPublishTopology ModelContext.PublishTopology => _host.Topology.PublishTopology;
+
         CancellationToken PipeContext.CancellationToken => _participant.StoppedToken;
 
         async Task ModelContext.BasicPublishAsync(string exchange, string routingKey, bool mandatory, IBasicProperties basicProperties, byte[] body,
@@ -135,6 +139,11 @@ namespace MassTransit.RabbitMqTransport.Contexts
         {
             return Task.Factory.StartNew(() => _model.QueueDeclare(queue, durable, exclusive, autoDelete, arguments),
                 _participant.StoppedToken, TaskCreationOptions.None, _taskScheduler);
+        }
+
+        Task<QueueDeclareOk> ModelContext.QueueDeclarePassive(string queue)
+        {
+            return Task.Factory.StartNew(() => _model.QueueDeclarePassive(queue),_participant.StoppedToken, TaskCreationOptions.None, _taskScheduler);
         }
 
         Task<uint> ModelContext.QueuePurge(string queue)

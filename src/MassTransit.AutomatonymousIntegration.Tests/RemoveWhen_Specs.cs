@@ -20,6 +20,7 @@ namespace MassTransit.AutomatonymousIntegration.Tests
     using NUnit.Framework;
     using Saga;
     using TestFramework;
+    using Testing;
 
 
     [TestFixture]
@@ -43,7 +44,7 @@ namespace MassTransit.AutomatonymousIntegration.Tests
         }
 
 
-        [Test]
+        [Test, Explicit]
         public void Should_return_a_wonderful_breakdown_of_the_guts_inside_it()
         {
             ProbeResult result = Bus.GetProbeResult();

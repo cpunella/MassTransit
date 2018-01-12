@@ -14,10 +14,11 @@ namespace MassTransit.AzureServiceBusTransport
 {
     using System;
     using System.Threading.Tasks;
+    using Configuration;
     using GreenPipes;
     using Microsoft.ServiceBus;
     using Microsoft.ServiceBus.Messaging;
-    using Transports;
+    using Topology;
     using Util;
 
 
@@ -28,6 +29,11 @@ namespace MassTransit.AzureServiceBusTransport
         IHost
     {
         ServiceBusHostSettings Settings { get; }
+        
+        /// <summary>
+        /// Returns the topology of the service bus host
+        /// </summary>
+        new IServiceBusHostTopology Topology { get; }
 
         Task<MessagingFactory> MessagingFactory { get; }
 
@@ -39,8 +45,6 @@ namespace MassTransit.AzureServiceBusTransport
         NamespaceManager NamespaceManager { get; }
 
         NamespaceManager RootNamespaceManager { get; }
-
-        IMessageNameFormatter MessageNameFormatter { get; }
 
         /// <summary>
         /// The supervisor for the host, which indicates when it's being stopped
@@ -66,7 +70,7 @@ namespace MassTransit.AzureServiceBusTransport
         /// </summary>
         /// <param name="configure"></param>
         /// <returns></returns>
-        Task<HostReceiveEndpointHandle> ConnectReceiveEndpoint(Action<IServiceBusReceiveEndpointConfigurator> configure = null);
+        HostReceiveEndpointHandle ConnectReceiveEndpoint(Action<IServiceBusReceiveEndpointConfigurator> configure = null);
 
         /// <summary>
         /// Create a receive endpoint on the host, with a separate handle for stopping/removing the endpoint
@@ -74,7 +78,7 @@ namespace MassTransit.AzureServiceBusTransport
         /// <param name="queueName"></param>
         /// <param name="configure"></param>
         /// <returns></returns>
-        Task<HostReceiveEndpointHandle> ConnectReceiveEndpoint(string queueName, Action<IServiceBusReceiveEndpointConfigurator> configure = null);
+        HostReceiveEndpointHandle ConnectReceiveEndpoint(string queueName, Action<IServiceBusReceiveEndpointConfigurator> configure = null);
 
         /// <summary>
         /// Create a subscription endpoint on the host, which can be stopped independently from the bus
@@ -83,7 +87,7 @@ namespace MassTransit.AzureServiceBusTransport
         /// <param name="subscriptionName">The subscription name for this endpoint</param>
         /// <param name="configure">Configuration callback for the endpoint</param>
         /// <returns></returns>
-        Task<HostReceiveEndpointHandle> ConnectSubscriptionEndpoint<T>(string subscriptionName,
+        HostReceiveEndpointHandle ConnectSubscriptionEndpoint<T>(string subscriptionName,
             Action<IServiceBusSubscriptionEndpointConfigurator> configure = null)
             where T : class;
 
@@ -94,7 +98,7 @@ namespace MassTransit.AzureServiceBusTransport
         /// <param name="topicName">The topic name to subscribe for this endpoint</param>
         /// <param name="configure">Configuration callback for the endpoint</param>
         /// <returns></returns>
-        Task<HostReceiveEndpointHandle> ConnectSubscriptionEndpoint(string subscriptionName, string topicName,
+        HostReceiveEndpointHandle ConnectSubscriptionEndpoint(string subscriptionName, string topicName,
             Action<IServiceBusSubscriptionEndpointConfigurator> configure = null);
 
         /// <summary>

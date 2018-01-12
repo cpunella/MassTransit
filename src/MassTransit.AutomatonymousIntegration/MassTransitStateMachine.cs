@@ -327,7 +327,7 @@ namespace Automatonymous
 
                         await ((StateMachine<TInstance>)this).RaiseEvent(eventContext).ConfigureAwait(false);
 
-                        if (tokenId == schedule.GetTokenId(context.Instance))
+                        if(schedule.GetTokenId(context.Instance) == tokenId)
                             schedule.SetTokenId(context.Instance, default(Guid?));
                     }));
         }
@@ -376,26 +376,27 @@ namespace Automatonymous
 
             foreach (var propertyInfo in properties)
             {
-                if (propertyInfo.PropertyType.IsGenericType)
+                var propertyTypeInfo = propertyInfo.PropertyType.GetTypeInfo();
+                if (!propertyTypeInfo.IsGenericType)
+                    continue;
+
+                if (propertyTypeInfo.GetGenericTypeDefinition() != typeof(Event<>))
+                    continue;
+
+                var messageTypeInfo = propertyTypeInfo.GetGenericArguments().First().GetTypeInfo();
+                if (messageTypeInfo.AsType().HasInterface<CorrelatedBy<Guid>>())
                 {
-                    if (propertyInfo.PropertyType.GetGenericTypeDefinition() == typeof(Event<>))
-                    {
-                        var messageType = propertyInfo.PropertyType.GetGenericArguments().First();
-                        if (messageType.HasInterface<CorrelatedBy<Guid>>())
-                        {
-                            var declarationType = typeof(CorrelatedEventRegistration<,>).MakeGenericType(typeof(TInstance), machineType,
-                                messageType);
-                            var declaration = Activator.CreateInstance(declarationType, propertyInfo);
-                            events.Add((StateMachineRegistration)declaration);
-                        }
-                        else
-                        {
-                            var declarationType = typeof(UncorrelatedEventRegistration<,>).MakeGenericType(typeof(TInstance), machineType,
-                                messageType);
-                            var declaration = Activator.CreateInstance(declarationType, propertyInfo);
-                            events.Add((StateMachineRegistration)declaration);
-                        }
-                    }
+                    var declarationType = typeof(CorrelatedEventRegistration<,>).MakeGenericType(typeof(TInstance), machineType,
+                        messageTypeInfo.AsType());
+                    var declaration = Activator.CreateInstance(declarationType, propertyInfo);
+                    events.Add((StateMachineRegistration)declaration);
+                }
+                else
+                {
+                    var declarationType = typeof(UncorrelatedEventRegistration<,>).MakeGenericType(typeof(TInstance), machineType,
+                        messageTypeInfo.AsType());
+                    var declaration = Activator.CreateInstance(declarationType, propertyInfo);
+                    events.Add((StateMachineRegistration)declaration);
                 }
             }
 

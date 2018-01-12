@@ -19,6 +19,7 @@ namespace MassTransit.AutomatonymousIntegration.Tests
     using NUnit.Framework;
     using Saga;
     using TestFramework;
+    using Testing;
 
 
     [TestFixture]
@@ -125,8 +126,6 @@ namespace MassTransit.AutomatonymousIntegration.Tests
 
             saga = await _repository.ShouldContainSaga(state => state.TransactionId == id && state.CurrentState == _machine.Final, TestTimeout);
             Assert.IsTrue(saga.HasValue);
-
-            Console.WriteLine(Bus.GetProbeResult().ToJsonString());
         }
     }
 }

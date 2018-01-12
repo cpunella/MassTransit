@@ -1,4 +1,4 @@
-// Copyright 2007-2016 Chris Patterson, Dru Sellers, Travis Smith, et. al.
+// Copyright 2007-2017 Chris Patterson, Dru Sellers, Travis Smith, et. al.
 //  
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use
 // this file except in compliance with the License. You may obtain a copy of the 
@@ -19,8 +19,8 @@ namespace MassTransit.RabbitMqTransport.Transport
     using Integration;
     using Logging;
     using MassTransit.Pipeline;
+    using MassTransit.Topology;
     using Policies;
-    using RabbitMQ.Client;
     using Topology;
     using Transports;
     using Util;
@@ -35,10 +35,12 @@ namespace MassTransit.RabbitMqTransport.Transport
         readonly IRetryPolicy _connectionRetryPolicy;
         readonly RabbitMqHostSettings _settings;
         readonly TaskSupervisor _supervisor;
+        readonly IRabbitMqHostTopology _topology;
 
-        public RabbitMqHost(RabbitMqHostSettings settings)
+        public RabbitMqHost(RabbitMqHostSettings settings, IRabbitMqHostTopology topology)
         {
             _settings = settings;
+            _topology = topology;
 
             var exceptionFilter = Retry.Selected<RabbitMqConnectionException>();
             ReceiveEndpoints = new ReceiveEndpointCollection();
@@ -47,7 +49,7 @@ namespace MassTransit.RabbitMqTransport.Transport
 
             _supervisor = new TaskSupervisor($"{TypeMetadataCache<RabbitMqHost>.ShortName} - {_settings.ToDebugString()}");
 
-            _connectionCache = new RabbitMqConnectionCache(settings, _supervisor);
+            _connectionCache = new RabbitMqConnectionCache(settings, _topology, _supervisor);
         }
 
         public IRabbitMqReceiveEndpointFactory ReceiveEndpointFactory { get; set; }
@@ -76,8 +78,7 @@ namespace MassTransit.RabbitMqTransport.Transport
             var connectionTask = _connectionRetryPolicy.RetryUntilCancelled(() => _connectionCache.Send(connectionPipe, _supervisor.StoppingToken),
                 _supervisor.StoppingToken);
 
-            HostReceiveEndpointHandle[] handles = await ReceiveEndpoints.StartEndpoints().ConfigureAwait(false);
-
+            HostReceiveEndpointHandle[] handles = ReceiveEndpoints.StartEndpoints();
 
             return new Handle(connectionTask, handles, _supervisor, this);
         }
@@ -105,12 +106,10 @@ namespace MassTransit.RabbitMqTransport.Transport
             });
 
             if (_settings.Ssl)
-            {
                 scope.Set(new
                 {
                     _settings.SslServerName
                 });
-            }
 
             _connectionCache.Probe(scope);
 
@@ -119,24 +118,19 @@ namespace MassTransit.RabbitMqTransport.Transport
 
         public IConnectionCache ConnectionCache => _connectionCache;
         public RabbitMqHostSettings Settings => _settings;
+
+        public IRabbitMqHostTopology Topology => _topology;
+        IHostTopology IHost.Topology => Topology;
+
         public IRetryPolicy ConnectionRetryPolicy => _connectionRetryPolicy;
         public ITaskSupervisor Supervisor => _supervisor;
 
-        public Uri GetSendAddress(string exchangeName, Action<IExchangeConfigurator> configure = null)
+        public HostReceiveEndpointHandle ConnectReceiveEndpoint(Action<IRabbitMqReceiveEndpointConfigurator> configure = null)
         {
-            var sendSettings = new RabbitMqSendSettings(exchangeName, ExchangeType.Fanout, true, false);
-
-            configure?.Invoke(sendSettings);
-
-            return sendSettings.GetSendAddress(_settings.HostAddress);
+            return ConnectReceiveEndpoint(_topology.CreateTemporaryQueueName("endpoint"), configure);
         }
 
-        public Task<HostReceiveEndpointHandle> ConnectReceiveEndpoint(Action<IRabbitMqReceiveEndpointConfigurator> configure)
-        {
-            return ConnectReceiveEndpoint(this.GetTemporaryQueueName("endpoint"), configure);
-        }
-
-        public Task<HostReceiveEndpointHandle> ConnectReceiveEndpoint(string queueName, Action<IRabbitMqReceiveEndpointConfigurator> configure)
+        public HostReceiveEndpointHandle ConnectReceiveEndpoint(string queueName, Action<IRabbitMqReceiveEndpointConfigurator> configure = null)
         {
             if (ReceiveEndpointFactory == null)
                 throw new ConfigurationException("The receive endpoint factory was not specified");
@@ -166,6 +160,16 @@ namespace MassTransit.RabbitMqTransport.Transport
         ConnectHandle IReceiveEndpointObserverConnector.ConnectReceiveEndpointObserver(IReceiveEndpointObserver observer)
         {
             return ReceiveEndpoints.ConnectReceiveEndpointObserver(observer);
+        }
+
+        ConnectHandle IPublishObserverConnector.ConnectPublishObserver(IPublishObserver observer)
+        {
+            return ReceiveEndpoints.ConnectPublishObserver(observer);
+        }
+
+        ConnectHandle ISendObserverConnector.ConnectSendObserver(ISendObserver observer)
+        {
+            return ReceiveEndpoints.ConnectSendObserver(observer);
         }
 
 

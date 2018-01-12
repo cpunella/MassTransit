@@ -14,6 +14,7 @@ namespace MassTransit.AzureServiceBusTransport.Contexts
 {
     using System;
     using System.Threading.Tasks;
+    using Configuration;
     using GreenPipes;
     using GreenPipes.Payloads;
     using Microsoft.ServiceBus;
@@ -47,11 +48,6 @@ namespace MassTransit.AzureServiceBusTransport.Contexts
         public NamespaceManager NamespaceManager => _host.NamespaceManager;
 
         public Uri ServiceAddress => _host.Settings.ServiceUri;
-
-        public Uri GetTopicAddress(Type messageType)
-        {
-            return _host.MessageNameFormatter.GetTopicAddress(_host, messageType);
-        }
 
         public Task<QueueDescription> CreateQueue(QueueDescription queueDescription)
         {

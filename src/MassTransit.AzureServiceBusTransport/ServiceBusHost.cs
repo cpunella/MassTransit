@@ -1,4 +1,4 @@
-// Copyright 2007-2016 Chris Patterson, Dru Sellers, Travis Smith, et. al.
+// Copyright 2007-2017 Chris Patterson, Dru Sellers, Travis Smith, et. al.
 //  
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use
 // this file except in compliance with the License. You may obtain a copy of the 
@@ -17,12 +17,15 @@ namespace MassTransit.AzureServiceBusTransport
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Configuration;
     using GreenPipes;
     using Logging;
     using MassTransit.Pipeline;
+    using MassTransit.Topology;
     using Microsoft.ServiceBus;
     using Microsoft.ServiceBus.Messaging;
     using Settings;
+    using Topology;
     using Transport;
     using Transports;
     using Util;
@@ -40,15 +43,15 @@ namespace MassTransit.AzureServiceBusTransport
         readonly Lazy<Task<MessagingFactory>> _sessionMessagingFactory;
         readonly TaskSupervisor _supervisor;
 
-        public ServiceBusHost(ServiceBusHostSettings settings)
+        public ServiceBusHost(ServiceBusHostSettings settings, IServiceBusHostTopology hostTopology)
         {
             Settings = settings;
+            Topology = hostTopology;
 
             _messagingFactory = new Lazy<Task<MessagingFactory>>(CreateMessagingFactory);
             _sessionMessagingFactory = new Lazy<Task<MessagingFactory>>(CreateNetMessagingFactory);
             _namespaceManager = new Lazy<NamespaceManager>(CreateNamespaceManager);
             _rootNamespaceManager = new Lazy<NamespaceManager>(CreateRootNamespaceManager);
-            MessageNameFormatter = new ServiceBusMessageNameFormatter();
             _receiveEndpoints = new ReceiveEndpointCollection();
 
             _supervisor = new TaskSupervisor($"{TypeMetadataCache<ServiceBusHost>.ShortName} - {Settings.ServiceUri}");
@@ -70,15 +73,13 @@ namespace MassTransit.AzureServiceBusTransport
             });
         }
 
-        public IServiceBusReceiveEndpointFactory ReceiveEndpointFactory { get; set; }
-
-        public IServiceBusSubscriptionEndpointFactory SubscriptionEndpointFactory { get; set; }
-
+        public IServiceBusReceiveEndpointFactory ReceiveEndpointFactory { private get; set; }
+        public IServiceBusSubscriptionEndpointFactory SubscriptionEndpointFactory { private get; set; }
         public IReceiveEndpointCollection ReceiveEndpoints => _receiveEndpoints;
 
         public async Task<HostHandle> Start()
         {
-            HostReceiveEndpointHandle[] handles = await ReceiveEndpoints.StartEndpoints().ConfigureAwait(false);
+            HostReceiveEndpointHandle[] handles = ReceiveEndpoints.StartEndpoints();
 
             return new Handle(this, _supervisor, handles);
         }
@@ -90,8 +91,16 @@ namespace MassTransit.AzureServiceBusTransport
         }
 
         public IRetryPolicy RetryPolicy { get; }
-
         Task<MessagingFactory> IServiceBusHost.SessionMessagingFactory => _sessionMessagingFactory.Value;
+        public ServiceBusHostSettings Settings { get; }
+
+        public IServiceBusHostTopology Topology { get; }
+        IHostTopology IHost.Topology => Topology;
+
+        Task<MessagingFactory> IServiceBusHost.MessagingFactory => _messagingFactory.Value;
+        public NamespaceManager NamespaceManager => _namespaceManager.Value;
+        public NamespaceManager RootNamespaceManager => _rootNamespaceManager.Value;
+        public ITaskSupervisor Supervisor => _supervisor;
 
         void IProbeSite.Probe(ProbeContext context)
         {
@@ -106,18 +115,6 @@ namespace MassTransit.AzureServiceBusTransport
             _receiveEndpoints.Probe(scope);
         }
 
-        public ServiceBusHostSettings Settings { get; }
-
-        Task<MessagingFactory> IServiceBusHost.MessagingFactory => _messagingFactory.Value;
-
-        public NamespaceManager NamespaceManager => _namespaceManager.Value;
-
-        public NamespaceManager RootNamespaceManager => _rootNamespaceManager.Value;
-
-        public IMessageNameFormatter MessageNameFormatter { get; }
-
-        public ITaskSupervisor Supervisor => _supervisor;
-
         public string GetQueuePath(QueueDescription queueDescription)
         {
             IEnumerable<string> segments = new[] {Settings.ServiceUri.AbsolutePath.Trim('/'), queueDescription.Path.Trim('/')}
@@ -131,12 +128,9 @@ namespace MassTransit.AzureServiceBusTransport
             var create = true;
             try
             {
-                if (await NamespaceManager.QueueExistsAsync(queueDescription.Path).ConfigureAwait(false))
-                {
-                    queueDescription = await NamespaceManager.GetQueueAsync(queueDescription.Path).ConfigureAwait(false);
+                queueDescription = await NamespaceManager.GetQueueAsync(queueDescription.Path).ConfigureAwait(false);
 
-                    create = false;
-                }
+                create = false;
             }
             catch (MessagingEntityNotFoundException)
             {
@@ -163,7 +157,9 @@ namespace MassTransit.AzureServiceBusTransport
                     {
                     }
                     else
+                    {
                         throw;
+                    }
                 }
 
                 if (!created)
@@ -171,7 +167,6 @@ namespace MassTransit.AzureServiceBusTransport
             }
 
             if (_log.IsDebugEnabled)
-            {
                 _log.DebugFormat("Queue: {0} ({1})", queueDescription.Path,
                     string.Join(", ", new[]
                     {
@@ -180,7 +175,6 @@ namespace MassTransit.AzureServiceBusTransport
                         queueDescription.EnableDeadLetteringOnMessageExpiration ? "dead letter" : "",
                         queueDescription.RequiresSession ? "session" : ""
                     }.Where(x => !string.IsNullOrWhiteSpace(x))));
-            }
 
             return queueDescription;
         }
@@ -190,12 +184,9 @@ namespace MassTransit.AzureServiceBusTransport
             var create = true;
             try
             {
-                if (await RootNamespaceManager.TopicExistsAsync(topicDescription.Path).ConfigureAwait(false))
-                {
-                    topicDescription = await RootNamespaceManager.GetTopicAsync(topicDescription.Path).ConfigureAwait(false);
+                topicDescription = await RootNamespaceManager.GetTopicAsync(topicDescription.Path).ConfigureAwait(false);
 
-                    create = false;
-                }
+                create = false;
             }
             catch (MessagingEntityNotFoundException)
             {
@@ -222,7 +213,9 @@ namespace MassTransit.AzureServiceBusTransport
                     {
                     }
                     else
+                    {
                         throw;
+                    }
                 }
 
                 if (!created)
@@ -230,14 +223,12 @@ namespace MassTransit.AzureServiceBusTransport
             }
 
             if (_log.IsDebugEnabled)
-            {
                 _log.DebugFormat("Topic: {0} ({1})", topicDescription.Path,
                     string.Join(", ", new[]
                     {
                         topicDescription.EnableExpress ? "express" : "",
                         topicDescription.RequiresDuplicateDetection ? "dupe detect" : ""
                     }.Where(x => !string.IsNullOrWhiteSpace(x))));
-            }
 
             return topicDescription;
         }
@@ -248,48 +239,39 @@ namespace MassTransit.AzureServiceBusTransport
             SubscriptionDescription subscriptionDescription = null;
             try
             {
-                if (await RootNamespaceManager.SubscriptionExistsAsync(description.TopicPath, description.Name).ConfigureAwait(false))
+                subscriptionDescription = await RootNamespaceManager.GetSubscriptionAsync(description.TopicPath, description.Name).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(description.ForwardTo))
                 {
-                    subscriptionDescription = await RootNamespaceManager.GetSubscriptionAsync(description.TopicPath, description.Name).ConfigureAwait(false);
-                    if (string.IsNullOrWhiteSpace(description.ForwardTo))
+                    if (!string.IsNullOrWhiteSpace(subscriptionDescription.ForwardTo))
                     {
-                        if (!string.IsNullOrWhiteSpace(subscriptionDescription.ForwardTo))
-                        {
-                            if (_log.IsWarnEnabled)
-                            {
-                                _log.WarnFormat("Removing invalid subscription: {0} ({1} -> {2})", subscriptionDescription.Name,
-                                    subscriptionDescription.TopicPath,
-                                    subscriptionDescription.ForwardTo);
-                            }
+                        if (_log.IsWarnEnabled)
+                            _log.WarnFormat("Removing invalid subscription: {0} ({1} -> {2})", subscriptionDescription.Name,
+                                subscriptionDescription.TopicPath,
+                                subscriptionDescription.ForwardTo);
 
-                            await RootNamespaceManager.DeleteSubscriptionAsync(description.TopicPath, description.Name).ConfigureAwait(false);
-                        }
+                        await RootNamespaceManager.DeleteSubscriptionAsync(description.TopicPath, description.Name).ConfigureAwait(false);
+                    }
+                }
+                else
+                {
+                    if (description.ForwardTo.Equals(subscriptionDescription.ForwardTo))
+                    {
+                        if (_log.IsDebugEnabled)
+                            _log.DebugFormat("Updating subscription: {0} ({1} -> {2})", subscriptionDescription.Name, subscriptionDescription.TopicPath,
+                                subscriptionDescription.ForwardTo);
+
+                        await RootNamespaceManager.UpdateSubscriptionAsync(description).ConfigureAwait(false);
+
+                        create = false;
                     }
                     else
                     {
-                        if (description.ForwardTo.Equals(subscriptionDescription.ForwardTo))
-                        {
-                            if (_log.IsDebugEnabled)
-                            {
-                                _log.DebugFormat("Updating subscription: {0} ({1} -> {2})", subscriptionDescription.Name, subscriptionDescription.TopicPath,
-                                    subscriptionDescription.ForwardTo);
-                            }
+                        if (_log.IsWarnEnabled)
+                            _log.WarnFormat("Removing invalid subscription: {0} ({1} -> {2})", subscriptionDescription.Name,
+                                subscriptionDescription.TopicPath,
+                                subscriptionDescription.ForwardTo);
 
-                            await RootNamespaceManager.UpdateSubscriptionAsync(description).ConfigureAwait(false);
-
-                            create = false;
-                        }
-                        else
-                        {
-                            if (_log.IsWarnEnabled)
-                            {
-                                _log.WarnFormat("Removing invalid subscription: {0} ({1} -> {2})", subscriptionDescription.Name,
-                                    subscriptionDescription.TopicPath,
-                                    subscriptionDescription.ForwardTo);
-                            }
-
-                            await RootNamespaceManager.DeleteSubscriptionAsync(description.TopicPath, description.Name).ConfigureAwait(false);
-                        }
+                        await RootNamespaceManager.DeleteSubscriptionAsync(description.TopicPath, description.Name).ConfigureAwait(false);
                     }
                 }
             }
@@ -319,7 +301,9 @@ namespace MassTransit.AzureServiceBusTransport
                     {
                     }
                     else
+                    {
                         throw;
+                    }
                 }
 
                 if (!created)
@@ -327,10 +311,8 @@ namespace MassTransit.AzureServiceBusTransport
             }
 
             if (_log.IsDebugEnabled)
-            {
                 _log.DebugFormat("Subscription: {0} ({1} -> {2})", subscriptionDescription.Name, subscriptionDescription.TopicPath,
                     subscriptionDescription.ForwardTo);
-            }
 
             return subscriptionDescription;
         }
@@ -339,29 +321,24 @@ namespace MassTransit.AzureServiceBusTransport
         {
             try
             {
-                if (await RootNamespaceManager.SubscriptionExistsAsync(description.TopicPath, description.Name).ConfigureAwait(false))
-                {
-                    await RootNamespaceManager.DeleteSubscriptionAsync(description.TopicPath, description.Name).ConfigureAwait(false);
-                }
+                await RootNamespaceManager.DeleteSubscriptionAsync(description.TopicPath, description.Name).ConfigureAwait(false);
             }
             catch (MessagingEntityNotFoundException)
             {
             }
 
             if (_log.IsDebugEnabled)
-            {
                 _log.DebugFormat("Subscription Deleted: {0} ({1} -> {2})", description.Name, description.TopicPath, description.ForwardTo);
-            }
         }
 
-        public Task<HostReceiveEndpointHandle> ConnectReceiveEndpoint(Action<IServiceBusReceiveEndpointConfigurator> configure)
+        public HostReceiveEndpointHandle ConnectReceiveEndpoint(Action<IServiceBusReceiveEndpointConfigurator> configure = null)
         {
             var queueName = this.GetTemporaryQueueName("endpoint");
 
             return ConnectReceiveEndpoint(queueName, configure);
         }
 
-        public Task<HostReceiveEndpointHandle> ConnectReceiveEndpoint(string queueName, Action<IServiceBusReceiveEndpointConfigurator> configure)
+        public HostReceiveEndpointHandle ConnectReceiveEndpoint(string queueName, Action<IServiceBusReceiveEndpointConfigurator> configure = null)
         {
             if (ReceiveEndpointFactory == null)
                 throw new ConfigurationException("The receive endpoint factory was not specified");
@@ -371,15 +348,22 @@ namespace MassTransit.AzureServiceBusTransport
             return _receiveEndpoints.Start(queueName);
         }
 
-        public Task<HostReceiveEndpointHandle> ConnectSubscriptionEndpoint<T>(string subscriptionName,
-            Action<IServiceBusSubscriptionEndpointConfigurator> configure)
+        public HostReceiveEndpointHandle ConnectSubscriptionEndpoint<T>(string subscriptionName,
+            Action<IServiceBusSubscriptionEndpointConfigurator> configure = null)
             where T : class
         {
-            return ConnectSubscriptionEndpoint(subscriptionName, MessageNameFormatter.GetTopicAddress(this, typeof(T)).AbsolutePath.Trim('/'), configure);
+            if (SubscriptionEndpointFactory == null)
+                throw new ConfigurationException("The subscription endpoint factory was not specified");
+
+            var settings = new SubscriptionEndpointSettings(Topology.Publish<T>().TopicDescription, subscriptionName);
+
+            SubscriptionEndpointFactory.CreateSubscriptionEndpoint(settings, configure);
+
+            return _receiveEndpoints.Start(settings.Path);
         }
 
-        public Task<HostReceiveEndpointHandle> ConnectSubscriptionEndpoint(string subscriptionName, string topicName,
-            Action<IServiceBusSubscriptionEndpointConfigurator> configure)
+        public HostReceiveEndpointHandle ConnectSubscriptionEndpoint(string subscriptionName, string topicName,
+            Action<IServiceBusSubscriptionEndpointConfigurator> configure = null)
         {
             if (SubscriptionEndpointFactory == null)
                 throw new ConfigurationException("The subscription endpoint factory was not specified");
@@ -411,6 +395,16 @@ namespace MassTransit.AzureServiceBusTransport
         ConnectHandle IReceiveEndpointObserverConnector.ConnectReceiveEndpointObserver(IReceiveEndpointObserver observer)
         {
             return _receiveEndpoints.ConnectReceiveEndpointObserver(observer);
+        }
+
+        ConnectHandle IPublishObserverConnector.ConnectPublishObserver(IPublishObserver observer)
+        {
+            return _receiveEndpoints.ConnectPublishObserver(observer);
+        }
+
+        ConnectHandle ISendObserverConnector.ConnectSendObserver(ISendObserver observer)
+        {
+            return _receiveEndpoints.ConnectSendObserver(observer);
         }
 
         Task<MessagingFactory> CreateMessagingFactory()
@@ -469,8 +463,7 @@ namespace MassTransit.AzureServiceBusTransport
             var nms = new NamespaceManagerSettings
             {
                 TokenProvider = Settings.TokenProvider,
-                OperationTimeout = Settings.OperationTimeout,
-                RetryPolicy = new RetryExponential(Settings.RetryMinBackoff, Settings.RetryMaxBackoff, Settings.RetryLimit)
+                OperationTimeout = Settings.OperationTimeout
             };
 
             return new NamespaceManager(Settings.ServiceUri, nms);
@@ -481,8 +474,7 @@ namespace MassTransit.AzureServiceBusTransport
             var nms = new NamespaceManagerSettings
             {
                 TokenProvider = Settings.TokenProvider,
-                OperationTimeout = Settings.OperationTimeout,
-                RetryPolicy = new RetryExponential(Settings.RetryMinBackoff, Settings.RetryMaxBackoff, Settings.RetryLimit)
+                OperationTimeout = Settings.OperationTimeout
             };
             var builder = new UriBuilder(Settings.ServiceUri)
             {
@@ -529,7 +521,6 @@ namespace MassTransit.AzureServiceBusTransport
                 }
 
                 if (_host._sessionMessagingFactory.IsValueCreated && _host.Settings.TransportType == TransportType.Amqp)
-                {
                     try
                     {
                         var factory = await _host._sessionMessagingFactory.Value.ConfigureAwait(false);
@@ -542,7 +533,6 @@ namespace MassTransit.AzureServiceBusTransport
                         if (_log.IsWarnEnabled)
                             _log.Warn("Exception closing messaging factory", ex);
                     }
-                }
             }
         }
     }

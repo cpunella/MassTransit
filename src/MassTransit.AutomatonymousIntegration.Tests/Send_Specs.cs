@@ -19,6 +19,7 @@ namespace MassTransit.AutomatonymousIntegration.Tests
     using NUnit.Framework;
     using Saga;
     using TestFramework;
+    using Testing;
 
 
     [TestFixture]
@@ -48,7 +49,7 @@ namespace MassTransit.AutomatonymousIntegration.Tests
             Assert.IsTrue(saga.HasValue);
         }
 
-        [Test]
+        [Test, Explicit]
         public void Should_return_a_wonderful_breakdown_of_the_guts_inside_it()
         {
             var result = Bus.GetProbeResult();
@@ -56,9 +57,9 @@ namespace MassTransit.AutomatonymousIntegration.Tests
             Console.WriteLine(result.ToJsonString());
         }
 
-        protected override void PreCreateBus(IInMemoryBusFactoryConfigurator configurator)
+        protected override void ConfigureInMemoryBus(IInMemoryBusFactoryConfigurator configurator)
         {
-            base.PreCreateBus(configurator);
+            base.ConfigureInMemoryBus(configurator);
 
             configurator.ReceiveEndpoint("observer", e =>
             {

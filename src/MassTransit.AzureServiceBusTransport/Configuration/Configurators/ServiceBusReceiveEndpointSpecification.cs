@@ -10,42 +10,48 @@
 // under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR 
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the 
 // specific language governing permissions and limitations under the License.
-namespace MassTransit.AzureServiceBusTransport.Configurators
+namespace MassTransit.AzureServiceBusTransport.Configuration.Configurators
 {
     using System;
     using System.Collections.Generic;
-    using System.Linq;
     using Builders;
     using GreenPipes;
     using MassTransit.Builders;
-    using MassTransit.Pipeline;
-    using Microsoft.ServiceBus.Messaging;
     using Pipeline;
     using Settings;
+    using Specifications;
+    using Topology.Configuration.Configurators;
+    using Transport;
 
 
     public class ServiceBusReceiveEndpointSpecification :
         ServiceBusEndpointSpecification,
         IServiceBusReceiveEndpointConfigurator
     {
+        readonly IServiceBusEndpointConfiguration _configuration;
+        readonly ISendTransportProvider _sendTransportProvider;
         readonly ReceiveEndpointSettings _settings;
         bool _subscribeMessageTopics;
 
-        public ServiceBusReceiveEndpointSpecification(IServiceBusHost host, string queueName, IConsumePipe consumePipe = null)
-            : this(host, new ReceiveEndpointSettings(Defaults.CreateQueueDescription(queueName)), consumePipe)
+        public ServiceBusReceiveEndpointSpecification(IServiceBusHost host, string queueName, IServiceBusEndpointConfiguration configuration,
+            ISendTransportProvider sendTransportProvider)
+            : this(host, new ReceiveEndpointSettings(new QueueConfigurator(queueName)), configuration, sendTransportProvider)
         {
         }
 
-        public ServiceBusReceiveEndpointSpecification(IServiceBusHost host, ReceiveEndpointSettings settings, IConsumePipe consumePipe = null)
-            : base(host, settings, consumePipe)
+        public ServiceBusReceiveEndpointSpecification(IServiceBusHost host, ReceiveEndpointSettings settings, IServiceBusEndpointConfiguration configuration,
+            ISendTransportProvider sendTransportProvider)
+            : base(host, settings, settings.QueueConfigurator, configuration)
         {
             _settings = settings;
+            _configuration = configuration;
+            _sendTransportProvider = sendTransportProvider;
             _subscribeMessageTopics = true;
         }
 
         public bool SubscribeMessageTopics
         {
-            set { _subscribeMessageTopics = value; }
+            set => _subscribeMessageTopics = value;
         }
 
         public bool EnableExpress
@@ -54,49 +60,49 @@ namespace MassTransit.AzureServiceBusTransport.Configurators
             {
                 _settings.QueueDescription.EnableExpress = value;
 
-                Changed("EnableExpress");
+                Changed(nameof(EnableExpress));
             }
         }
 
         public TimeSpan DuplicateDetectionHistoryTimeWindow
         {
-            set { _settings.DuplicateDetectionHistoryTimeWindow = value; }
+            set => _settings.QueueConfigurator.DuplicateDetectionHistoryTimeWindow = value;
         }
 
         public void EnableDuplicateDetection(TimeSpan historyTimeWindow)
         {
-            _settings.RequiresDuplicateDetection = true;
-            _settings.DuplicateDetectionHistoryTimeWindow = historyTimeWindow;
+            _settings.QueueConfigurator.RequiresDuplicateDetection = true;
+            _settings.QueueConfigurator.DuplicateDetectionHistoryTimeWindow = historyTimeWindow;
         }
 
         public bool EnablePartitioning
         {
-            set { _settings.EnablePartitioning = value; }
+            set => _settings.QueueConfigurator.EnablePartitioning = value;
         }
 
         public bool IsAnonymousAccessible
         {
-            set { _settings.IsAnonymousAccessible = value; }
+            set => _settings.QueueConfigurator.IsAnonymousAccessible = value;
         }
 
         public int MaxSizeInMegabytes
         {
-            set { _settings.MaxSizeInMegabytes = value; }
+            set => _settings.QueueConfigurator.MaxSizeInMegabytes = value;
         }
 
         public bool RequiresDuplicateDetection
         {
-            set { _settings.RequiresDuplicateDetection = value; }
+            set => _settings.QueueConfigurator.RequiresDuplicateDetection = value;
         }
 
         public bool SupportOrdering
         {
-            set { _settings.SupportOrdering = value; }
+            set => _settings.QueueConfigurator.SupportOrdering = value;
         }
 
         public bool RemoveSubscriptions
         {
-            set { _settings.RemoveSubscriptions = value; }
+            set => _settings.RemoveSubscriptions = value;
         }
 
         public override void SelectBasicTier()
@@ -108,7 +114,7 @@ namespace MassTransit.AzureServiceBusTransport.Configurators
 
         TimeSpan IServiceBusQueueEndpointConfigurator.MessageWaitTimeout
         {
-            set { _settings.MessageWaitTimeout = value; }
+            set => _settings.MessageWaitTimeout = value;
         }
 
         public override IEnumerable<ValidationResult> Validate()
@@ -116,8 +122,8 @@ namespace MassTransit.AzureServiceBusTransport.Configurators
             foreach (var result in base.Validate())
                 yield return result;
 
-            if (_settings.PrefetchCount <= 0)
-                yield return this.Failure("PrefetchCount", "must be > 0");
+            if (_settings.PrefetchCount < 0)
+                yield return this.Failure("PrefetchCount", "must be >= 0");
             if (_settings.MaxConcurrentCalls <= 0)
                 yield return this.Failure("MaxConcurrentCalls", "must be > 0");
             if (_settings.QueueDescription.AutoDeleteOnIdle != TimeSpan.Zero && _settings.QueueDescription.AutoDeleteOnIdle < TimeSpan.FromMinutes(5))
@@ -126,32 +132,17 @@ namespace MassTransit.AzureServiceBusTransport.Configurators
 
         public override void Apply(IBusBuilder builder)
         {
-            var receiveEndpointBuilder = new ServiceBusReceiveEndpointBuilder(CreateConsumePipe(builder), builder, _subscribeMessageTopics, Host);
+            var receiveEndpointBuilder = new ServiceBusReceiveEndpointBuilder(builder, Host, _subscribeMessageTopics, _configuration, _sendTransportProvider);
 
             var receivePipe = CreateReceivePipe(receiveEndpointBuilder);
 
-            ApplyReceiveEndpoint(receiveEndpointBuilder, receivePipe,
-                new PrepareReceiveEndpointFilter(_settings, receiveEndpointBuilder.GetTopicSubscriptions().Distinct().ToArray()),
-                new PrepareQueueClientFilter(_settings));
-        }
+            var receiveEndpointTopology = receiveEndpointBuilder.CreateReceiveEndpointTopology(InputAddress, _settings);
 
-        protected override ReceiveEndpointSettings GetReceiveEndpointSettings(string queueName)
-        {
-            var description = new QueueDescription(queueName)
+            ApplyReceiveEndpoint(receivePipe, receiveEndpointTopology, x =>
             {
-                DefaultMessageTimeToLive = _settings.QueueDescription.DefaultMessageTimeToLive,
-                MaxDeliveryCount = _settings.QueueDescription.MaxDeliveryCount,
-                RequiresSession = _settings.QueueDescription.RequiresSession,
-                EnablePartitioning = _settings.QueueDescription.EnablePartitioning
-            };
-
-            if (_settings.UsingBasicTier == false)
-            {
-                description.AutoDeleteOnIdle = _settings.QueueDescription.AutoDeleteOnIdle;
-                description.EnableExpress = _settings.QueueDescription.EnableExpress;
-            }
-
-            return new ReceiveEndpointSettings(description);
+                x.UseFilter(new ConfigureTopologyFilter<ReceiveSettings>(_settings, receiveEndpointTopology.BrokerTopology, _settings.RemoveSubscriptions));
+                x.UseFilter(new PrepareQueueClientFilter(_settings));
+            });
         }
     }
 }

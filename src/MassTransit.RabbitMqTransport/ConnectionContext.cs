@@ -12,9 +12,11 @@
 // specific language governing permissions and limitations under the License.
 namespace MassTransit.RabbitMqTransport
 {
+    using System;
     using System.Threading.Tasks;
     using GreenPipes;
     using RabbitMQ.Client;
+    using Topology;
 
 
     /// <summary>
@@ -28,6 +30,18 @@ namespace MassTransit.RabbitMqTransport
         /// </summary>
         IConnection Connection { get; }
 
+        /// <summary>
+        /// The connection description, useful to debug output
+        /// </summary>
+        string Description { get; }
+
+        /// <summary>
+        /// The Host Address for this connection
+        /// </summary>
+        Uri HostAddress { get; }
+
+        IRabbitMqHostTopology Topology { get; }
+        
         /// <summary>
         /// The host settings for the connection
         /// </summary>

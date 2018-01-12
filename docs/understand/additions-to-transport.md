@@ -1,4 +1,4 @@
-# What does MassTransit adds to the transport?
+# What does MassTransit add to the transport?
 
 MassTransit is a lightweight service bus for building distributed .NET applications. The main goal is to provide
 a consistent, .NET friendly abstraction over the message transport (whether it is RabbitMQ, Azure Service Bus, etc.).
@@ -27,7 +27,7 @@ misrouted to the queue, the message is moved to a skipped queue.
 
 ### Serialization
 C# is a statically typed language, and developers work with types. RabbitMQ works with bytes. So how do you format
-a message over the wire? How do you handle different date/time formats (local, UTC, unspecified)? How do your deal
+a message over the wire? How do you handle different date/time formats (local, UTC, unspecified)? How do you deal
 with numbers, are they integers, longs, or decimals? MassTransit has already thought about this and implemented 
 sensible defaults for you. And there are many serializers provided out of the box, including JSON, BSON, and XML as
 well as the .NET binary formatter as a last resort.
@@ -44,7 +44,7 @@ any messaging pattern.
 
 ### Consumer lifecycle management
 MassTransit handles consumer creation and disposal, and integrates with most major dependency injection containers
-using their built-in lifetime scope management. This ensures that depedencies are created and destroyed as part of 
+using their built-in lifetime scope management. This ensures that dependencies are created and destroyed as part of 
 the message consumption pipeline.
 
 ### Routing

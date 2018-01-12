@@ -17,81 +17,56 @@ namespace MassTransit.AutomatonymousIntegration.Tests
         using System;
         using System.Threading.Tasks;
         using Automatonymous;
-        using Saga;
-        using TestFramework;
         using NUnit.Framework;
+        using Saga;
+        using Testing;
 
 
         [TestFixture]
-        public class Rescheduling_a_message_from_a_state_machine : StateMachineTestFixture
+        public class Rescheduling_a_message_from_a_state_machine :
+            StateMachineTestFixture
         {
+            [Test]
+            public async Task Should_reschedule_the_message_with_a_new_token_id()
+            {
+                var correlationId = Guid.NewGuid();
+
+                var startCommand = new StartCommand(correlationId);
+
+                await InputQueueSendEndpoint.Send(startCommand);
+
+                ConsumeContext<MessageRescheduled> rescheduledEvent = await _rescheduled;
+
+                var sagaInstance = _repository[correlationId].Instance;
+
+                Assert.NotNull(rescheduledEvent.Message.NewScheduleTokenId);
+                Assert.AreEqual(sagaInstance.CorrelationId, rescheduledEvent.Message.CorrelationId);
+                Assert.AreEqual(sagaInstance.ScheduleId, rescheduledEvent.Message.NewScheduleTokenId);
+
+                await InputQueueSendEndpoint.Send(new StopCommand(correlationId));
+
+                var saga = await _repository.ShouldNotContainSaga(correlationId, TestTimeout);
+
+                Assert.IsNull(saga);
+            }
+
             InMemorySagaRepository<TestState> _repository;
             TestStateMachine _machine;
-
-            protected override void PreCreateBus(IInMemoryBusFactoryConfigurator configurator)
-            {
-                base.PreCreateBus(configurator);
-
-                configurator.UseMessageScheduler(QuartzQueueAddress);
-            }
+            Task<ConsumeContext<MessageRescheduled>> _rescheduled;
 
             protected override void ConfigureInMemoryReceiveEndpoint(IInMemoryReceiveEndpointConfigurator configurator)
             {
                 base.ConfigureInMemoryReceiveEndpoint(configurator);
 
                 _repository = new InMemorySagaRepository<TestState>();
-
                 _machine = new TestStateMachine();
 
                 configurator.StateMachineSaga(_machine, _repository);
-            }
 
-            [Test]
-            public async Task Should_reschedule_the_message_with_a_new_token_id()
-            {
-                Task<ConsumeContext<MessageRescheduled>> handler = SubscribeHandler<MessageRescheduled>();
-
-                var correlationId = Guid.NewGuid();
-                var startCommand = new StartCommand(correlationId);
-
-                await InputQueueSendEndpoint.Send(startCommand);
-
-                Guid? saga = await _repository.ShouldContainSaga(x => x.CorrelationId == correlationId, TestTimeout);
-                Assert.IsTrue(saga.HasValue);
-                var sagaInstance = _repository[saga.Value].Instance;
-
-                ConsumeContext<MessageRescheduled> rescheduledEvent = await handler;
-
-                Assert.NotNull(rescheduledEvent.Message.NewScheduleTokenId);
-                Assert.AreEqual(sagaInstance.CorrelationId, rescheduledEvent.Message.CorrelationId);
-                Assert.AreEqual(sagaInstance.ScheduleId, rescheduledEvent.Message.NewScheduleTokenId);
-            }
-
-            [Test]
-            public async Task Should_unschedule_the_rescheduled_message_when_stop_command_arrived()
-            {
-                Task<ConsumeContext<MessageRescheduled>> handler = SubscribeHandler<MessageRescheduled>();
-
-                var correlationId = Guid.NewGuid();
-                var startCommand = new StartCommand(correlationId);
-
-                await InputQueueSendEndpoint.Send(startCommand);
-
-                Guid? saga = await _repository.ShouldContainSaga(x => x.CorrelationId == correlationId, TestTimeout);
-                Assert.IsTrue(saga.HasValue);
-                var sagaInstance = _repository[saga.Value].Instance;
-
-                ConsumeContext<MessageRescheduled> rescheduledEvent = await handler;
-
-                await InputQueueSendEndpoint.Send(new StopCommand(correlationId));
-
-                saga = await _repository.ShouldNotContainSaga(correlationId, TestTimeout);
-
-                Assert.IsNull(saga);
+                _rescheduled = Handled<MessageRescheduled>(configurator);
             }
         }
 
-        #region Messages
 
         class Check
         {
@@ -106,14 +81,14 @@ namespace MassTransit.AutomatonymousIntegration.Tests
 
         class MessageRescheduled
         {
-            public Guid CorrelationId { get; set; }
-            public Guid? NewScheduleTokenId { get; set; }
-
             public MessageRescheduled(Guid correlationId, Guid? scheduleTokenId)
             {
                 CorrelationId = correlationId;
                 NewScheduleTokenId = scheduleTokenId;
             }
+
+            public Guid CorrelationId { get; set; }
+            public Guid? NewScheduleTokenId { get; set; }
         }
 
 
@@ -138,16 +113,17 @@ namespace MassTransit.AutomatonymousIntegration.Tests
             public Guid CorrelationId { get; set; }
         }
 
-        #endregion
-
-        #region Saga
 
         class TestStateMachine : MassTransitStateMachine<TestState>
         {
             public TestStateMachine()
             {
                 InstanceState(x => x.CurrentState);
-                Event(() => StartCommand, x => x.CorrelateBy((s, m) => s.CorrelationId == m.Message.CorrelationId));
+                Event(() => StartCommand, x =>
+                {
+                    x.CorrelateBy((s, m) => s.CorrelationId == m.Message.CorrelationId);
+                    x.SelectId(m => m.Message.CorrelationId);
+                });
                 Event(() => StopCommand, x => x.CorrelateBy((s, m) => s.CorrelationId == m.Message.CorrelationId));
 
                 Schedule(() => ScheduledMessage, x => x.ScheduleId,
@@ -184,11 +160,9 @@ namespace MassTransit.AutomatonymousIntegration.Tests
 
         class TestState : SagaStateMachineInstance
         {
-            public Guid CorrelationId { get; set; }
             public string CurrentState { get; set; }
             public Guid? ScheduleId { get; set; }
+            public Guid CorrelationId { get; set; }
         }
-
-        #endregion
     }
 }

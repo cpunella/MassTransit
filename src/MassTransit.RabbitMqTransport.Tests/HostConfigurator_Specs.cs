@@ -17,7 +17,8 @@ namespace MassTransit.RabbitMqTransport.Tests
     using Configurators;
     using NUnit.Framework;
     using Shouldly;
-
+    using Shouldly.ShouldlyExtensionMethods;
+    using System.Net.Security;
 
     [TestFixture]
     public class HostConfigurator_Specs
@@ -66,6 +67,61 @@ namespace MassTransit.RabbitMqTransport.Tests
             });
 
             configurator.Settings.UseClientCertificateAsAuthenticationIdentity.ShouldBe(valueToSet);
+        }
+        
+        [Test, Description("Default SSL settings should allow remote certificate chain error to maintain backward compatibility.")]
+        public void Should_allow_remote_certificate_chain_error_by_default()
+        {
+            var configurator = new RabbitMqHostConfigurator(new Uri("rabbitmq://localhost"));
+
+            configurator.UseSsl(sslConfigurator => { });
+
+            configurator.Settings.AcceptablePolicyErrors.ShouldHaveFlag(SslPolicyErrors.RemoteCertificateChainErrors);
+        }
+
+        [Test, Description("Remote certificate chain errors should be enforced when set.")]
+        public void Should_enforce_remote_certificate_chain_error_when_set()
+        {
+            var configurator = new RabbitMqHostConfigurator(new Uri("rabbitmq://localhost"));
+
+            configurator.UseSsl(sslConfigurator =>
+            {
+                sslConfigurator.EnforcePolicyErrors(SslPolicyErrors.RemoteCertificateChainErrors);
+            });
+
+            configurator.Settings.AcceptablePolicyErrors.ShouldNotHaveFlag(SslPolicyErrors.RemoteCertificateChainErrors);
+        }
+
+        [Test, Description("Custom client certificate selector should be used when set.")]
+        public void Should_use_custom_client_certificate_selector_when_set()
+        {
+            LocalCertificateSelectionCallback customSelector =
+                (sender, targetHost, localCertificates, remoteCertificate, acceptableIssuers)
+                    => null;
+
+            var configurator = new RabbitMqHostConfigurator(new Uri("rabbitmq://localhost"));
+            configurator.UseSsl(sslConfigurator =>
+            {
+                sslConfigurator.CertificateSelectionCallback = customSelector;
+            });
+
+            configurator.Settings.CertificateSelectionCallback.ShouldBeSameAs(customSelector);
+        }
+
+        [Test, Description("Custom remote certificate validator should be used when set.")]
+        public void Should_use_custom_remote_certificate_validator_when_set()
+        {
+            RemoteCertificateValidationCallback customValidator =
+                (sender, certificate, chain, sslPolicyErrors)
+                    => false;
+
+            var configurator = new RabbitMqHostConfigurator(new Uri("rabbitmq://localhost"));
+            configurator.UseSsl(sslConfigurator =>
+            {
+                sslConfigurator.CertificateValidationCallback = customValidator;
+            });
+
+            configurator.Settings.CertificateValidationCallback.ShouldBeSameAs(customValidator);
         }
     }
 }

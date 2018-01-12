@@ -25,9 +25,9 @@ namespace MassTransit.RabbitMqTransport.Tests
     {
         ReconnectConsumer _consumer;
 
-        protected override void ConfigureRabbitMqReceiveEndoint(IRabbitMqReceiveEndpointConfigurator configurator)
+        protected override void ConfigureRabbitMqReceiveEndpoint(IRabbitMqReceiveEndpointConfigurator configurator)
         {
-            base.ConfigureRabbitMqReceiveEndoint(configurator);
+            base.ConfigureRabbitMqReceiveEndpoint(configurator);
 
             _consumer = new ReconnectConsumer(TestTimeout);
 
@@ -52,7 +52,7 @@ namespace MassTransit.RabbitMqTransport.Tests
         }
 
 
-        [Test, Explicit]
+        [Test, Explicit, Category("SlowAF")]
         public async Task Should_fault_nicely()
         {
             await Bus.Publish(new ReconnectMessage {Value = "Before"});
@@ -78,7 +78,7 @@ namespace MassTransit.RabbitMqTransport.Tests
             Assert.IsTrue(afterFound);
         }
 
-        [Test, Explicit]
+        [Test, Explicit, Category("SlowAF")]
         public async Task Should_not_lock_when_sending_during_unavailable()
         {
             Console.WriteLine("Okay, stop RabbitMQ");
@@ -92,7 +92,7 @@ namespace MassTransit.RabbitMqTransport.Tests
 
             Console.WriteLine("Sending");
 
-            Assert.Throws<RabbitMqConnectionException>(async () => await Bus.Publish(new ReconnectMessage { Value = "Before" }));
+            Assert.That(async () => await Bus.Publish(new ReconnectMessage { Value = "Before" }), Throws.TypeOf<RabbitMqConnectionException>());
 
             Console.WriteLine("Start it back up");
 

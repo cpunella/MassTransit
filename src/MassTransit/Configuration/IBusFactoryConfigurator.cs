@@ -1,4 +1,4 @@
-// Copyright 2007-2015 Chris Patterson, Dru Sellers, Travis Smith, et. al.
+// Copyright 2007-2017 Chris Patterson, Dru Sellers, Travis Smith, et. al.
 //  
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use
 // this file except in compliance with the License. You may obtain a copy of the 
@@ -15,8 +15,7 @@ namespace MassTransit
     using System;
     using System.ComponentModel;
     using Builders;
-    using Configuration;
-    using GreenPipes;
+    using Topology.Configuration;
 
 
     public interface IBusFactoryConfigurator :
@@ -24,8 +23,28 @@ namespace MassTransit
         ISendPipelineConfigurator,
         IPublishPipelineConfigurator
     {
+        ISendTopologyConfigurator SendTopology { get; }
+
+        IPublishTopologyConfigurator PublishTopology { get; }
+
         [EditorBrowsable(EditorBrowsableState.Never)]
         void AddBusFactorySpecification(IBusFactorySpecification specification);
+
+        /// <summary>
+        /// Configure the send topology of the message type
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="configureTopology"></param>
+        void Send<T>(Action<IMessageSendTopologyConfigurator<T>> configureTopology)
+            where T : class;
+
+        /// <summary>
+        /// Configure the send topology of the message type
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="configureTopology"></param>
+        void Publish<T>(Action<IMessagePublishTopologyConfigurator<T>> configureTopology)
+            where T : class;
 
         /// <summary>
         /// Specify a receive endpoint for the bus, with the specified queue name

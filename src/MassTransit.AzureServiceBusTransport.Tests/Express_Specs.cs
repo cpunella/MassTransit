@@ -14,6 +14,7 @@ namespace MassTransit.AzureServiceBusTransport.Tests
 {
     using System;
     using System.Threading.Tasks;
+    using Configuration;
     using NUnit.Framework;
     using TestFramework.Messages;
 
@@ -29,6 +30,7 @@ namespace MassTransit.AzureServiceBusTransport.Tests
 
             await _handled;
         }
+
         Task<ConsumeContext<PingMessage>> _handled;
 
         protected override void ConfigureServiceBusBusHost(IServiceBusBusFactoryConfigurator configurator, IServiceBusHost host)

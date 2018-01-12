@@ -19,6 +19,7 @@ namespace MassTransit.HttpTransport.Specifications
     using GreenPipes;
     using Hosting;
     using MassTransit.Builders;
+    using Topology;
     using Transport;
     using Transports;
 
@@ -28,17 +29,19 @@ namespace MassTransit.HttpTransport.Specifications
         IHttpBusFactoryConfigurator,
         IBusFactory
     {
+        readonly IHttpEndpointConfiguration _configuration;
         readonly BusHostCollection<HttpHost> _hosts;
 
-        public HttpBusFactoryConfigurator()
+        public HttpBusFactoryConfigurator(IHttpEndpointConfiguration configuration)
+            : base(configuration)
         {
+            _configuration = configuration;
             _hosts = new BusHostCollection<HttpHost>();
-
         }
 
         public IBusControl CreateBus()
         {
-            var builder = new HttpBusBuilder(_hosts, ConsumePipeFactory, SendPipeFactory, PublishPipeFactory);
+            var builder = new HttpBusBuilder(_hosts, _configuration);
 
             ApplySpecifications(builder);
 
@@ -58,7 +61,9 @@ namespace MassTransit.HttpTransport.Specifications
 
         public IHttpHost Host(HttpHostSettings settings)
         {
-            var httpHost = new HttpHost(settings);
+            var hostTopology = new HttpHostTopology(_configuration.Topology);
+            
+            var httpHost = new HttpHost(settings, hostTopology);
 
             _hosts.Add(httpHost);
 
@@ -75,7 +80,9 @@ namespace MassTransit.HttpTransport.Specifications
             if (host == null)
                 throw new ArgumentNullException(nameof(host));
 
-            var specification = new HttpReceiveEndpointSpecification(host, pathMatch);
+            var endpointSpecification = _configuration.CreateNewConfiguration();
+
+            var specification = new HttpReceiveEndpointSpecification(host, _hosts, pathMatch, endpointSpecification);
 
             specification.ConnectConsumerConfigurationObserver(this);
             specification.ConnectSagaConfigurationObserver(this);

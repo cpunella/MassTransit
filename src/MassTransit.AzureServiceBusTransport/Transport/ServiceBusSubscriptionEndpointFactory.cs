@@ -1,4 +1,4 @@
-﻿// Copyright 2007-2016 Chris Patterson, Dru Sellers, Travis Smith, et. al.
+﻿// Copyright 2007-2017 Chris Patterson, Dru Sellers, Travis Smith, et. al.
 //  
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use
 // this file except in compliance with the License. You may obtain a copy of the 
@@ -13,8 +13,10 @@
 namespace MassTransit.AzureServiceBusTransport.Transport
 {
     using System;
-    using Builders;
-    using Configurators;
+    using Configuration;
+    using Configuration.Builders;
+    using Configuration.Configurators;
+    using Configuration.Specifications;
     using MassTransit.Configurators;
     using Settings;
 
@@ -23,19 +25,24 @@ namespace MassTransit.AzureServiceBusTransport.Transport
         IServiceBusSubscriptionEndpointFactory
     {
         readonly ServiceBusBusBuilder _builder;
+        readonly IServiceBusEndpointConfiguration _configuration;
         readonly ServiceBusHost _host;
+        readonly ISendTransportProvider _sendTransportProvider;
 
-        public ServiceBusSubscriptionEndpointFactory(ServiceBusBusBuilder builder, ServiceBusHost host)
+        public ServiceBusSubscriptionEndpointFactory(ServiceBusBusBuilder builder, ServiceBusHost host, IServiceBusEndpointConfiguration configuration,
+            ISendTransportProvider sendTransportProvider)
         {
             _builder = builder;
             _host = host;
+            _configuration = configuration;
+            _sendTransportProvider = sendTransportProvider;
         }
 
         public void CreateSubscriptionEndpoint(SubscriptionEndpointSettings settings, Action<IServiceBusSubscriptionEndpointConfigurator> configure)
         {
-            var consumePipe = _builder.CreateConsumePipe();
+            var endpointConfiguration = _configuration.CreateNewConfiguration();
 
-            var endpointConfigurator = new ServiceBusSubscriptionEndpointSpecification(_host, settings, consumePipe);
+            var endpointConfigurator = new ServiceBusSubscriptionEndpointSpecification(_host, settings, endpointConfiguration, _sendTransportProvider);
 
             configure?.Invoke(endpointConfigurator);
 

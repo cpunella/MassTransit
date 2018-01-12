@@ -16,10 +16,12 @@ namespace MassTransit.AzureServiceBusTransport.Hosting
     using Configuration;
     using ConsumeConfigurators;
     using GreenPipes;
-    using MassTransit.Builders;
+    using Builders;
+    using MassTransit.Configuration;
     using MassTransit.Hosting;
     using MassTransit.Saga;
     using MassTransit.Saga.SubscriptionConfigurators;
+    using MassTransit.Topology.Configuration;
 
 
     /// <summary>
@@ -59,9 +61,28 @@ namespace MassTransit.AzureServiceBusTransport.Hosting
             _configurator.AddPipeSpecification(specification);
         }
 
+        public void AddPrePipeSpecification(IPipeSpecification<ConsumeContext> specification)
+        {
+            _configurator.AddPrePipeSpecification(specification);
+        }
+
+        public ISendTopologyConfigurator SendTopology => ((IBusFactoryConfigurator)_configurator).SendTopology;
+
+        public IPublishTopologyConfigurator PublishTopology => ((IBusFactoryConfigurator)_configurator).PublishTopology;
+
         public void AddBusFactorySpecification(IBusFactorySpecification specification)
         {
             _configurator.AddBusFactorySpecification(specification);
+        }
+
+        public void Send<T>(Action<IMessageSendTopologyConfigurator<T>> configureTopology) where T : class
+        {
+            ((IBusFactoryConfigurator)_configurator).Send(configureTopology);
+        }
+
+        public void Publish<T>(Action<IMessagePublishTopologyConfigurator<T>> configureTopology) where T : class
+        {
+            ((IBusFactoryConfigurator)_configurator).Publish(configureTopology);
         }
 
         public void ReceiveEndpoint(string queueName, Action<IReceiveEndpointConfigurator> configureEndpoint)

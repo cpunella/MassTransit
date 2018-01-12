@@ -26,12 +26,16 @@ namespace MassTransit.Transports
         IAsyncDisposable
     {
         readonly ISendPipe _sendPipe;
+        readonly ConnectHandle _observerHandle;
         readonly ISendTransport _transport;
 
-        public SendEndpoint(ISendTransport transport, IMessageSerializer serializer, Uri destinationAddress, Uri sourceAddress, ISendPipe sendPipe)
+        public SendEndpoint(ISendTransport transport, IMessageSerializer serializer, Uri destinationAddress, Uri sourceAddress, ISendPipe sendPipe,
+            ConnectHandle observerHandle = null)
         {
             _transport = transport;
             _sendPipe = sendPipe;
+            _observerHandle = observerHandle;
+
             Serializer = serializer;
             DestinationAddress = destinationAddress;
             SourceAddress = sourceAddress;
@@ -45,6 +49,8 @@ namespace MassTransit.Transports
 
         public Task DisposeAsync(CancellationToken cancellationToken)
         {
+            _observerHandle?.Disconnect();
+
             return _transport.Close();
         }
 
@@ -211,13 +217,12 @@ namespace MassTransit.Transports
 
                 if (_endpoint._sendPipe != null)
                     await _endpoint._sendPipe.Send(context).ConfigureAwait(false);
+                
                 if (_pipe != null)
                     await _pipe.Send(context).ConfigureAwait(false);
+               
                 if (_sendPipe != null)
                     await _sendPipe.Send(context).ConfigureAwait(false);
-
-                if (!context.CorrelationId.HasValue)
-                    MessageCorrelationCache<T>.SetCorrelationId(context);
 
                 if (!context.ConversationId.HasValue)
                     context.ConversationId = NewId.NextGuid();

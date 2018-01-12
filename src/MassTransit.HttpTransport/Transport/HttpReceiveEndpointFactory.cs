@@ -1,4 +1,4 @@
-﻿// Copyright 2007-2016 Chris Patterson, Dru Sellers, Travis Smith, et. al.
+﻿// Copyright 2007-2017 Chris Patterson, Dru Sellers, Travis Smith, et. al.
 //  
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use
 // this file except in compliance with the License. You may obtain a copy of the 
@@ -16,23 +16,28 @@ namespace MassTransit.HttpTransport.Transport
     using Builders;
     using Configurators;
     using Specifications;
+    using Transports;
 
 
     public class HttpReceiveEndpointFactory :
         IHttpReceiveEndpointFactory
     {
         readonly HttpBusBuilder _builder;
+        readonly IHttpEndpointConfiguration _configuration;
         readonly IHttpHost _host;
+        readonly BusHostCollection<HttpHost> _hosts;
 
-        public HttpReceiveEndpointFactory(HttpBusBuilder builder, IHttpHost host)
+        public HttpReceiveEndpointFactory(HttpBusBuilder builder, IHttpHost host, BusHostCollection<HttpHost> hosts, IHttpEndpointConfiguration configuration)
         {
             _builder = builder;
             _host = host;
+            _hosts = hosts;
+            _configuration = configuration;
         }
 
         public void CreateReceiveEndpoint(string pathMatch, Action<IHttpReceiveEndpointConfigurator> configure)
         {
-            var endpointConfigurator = new HttpReceiveEndpointSpecification(_host, pathMatch);
+            var endpointConfigurator = new HttpReceiveEndpointSpecification(_host, _hosts, pathMatch, _configuration);
 
             configure?.Invoke(endpointConfigurator);
 

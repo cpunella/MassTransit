@@ -23,6 +23,7 @@ namespace MassTransit
     using Internals.Extensions;
     using Logging;
     using Pipeline;
+    using Topology;
     using Transports;
     using Util;
 
@@ -42,13 +43,14 @@ namespace MassTransit
 
         public MassTransitBus(Uri address, IConsumePipe consumePipe, ISendEndpointProvider sendEndpointProvider,
             IPublishEndpointProvider publishEndpointProvider, IBusHostCollection hosts,
-            IBusObserver busObservable)
+            IBusObserver busObservable, IBusTopology topology)
         {
             Address = address;
             _consumePipe = consumePipe;
             _sendEndpointProvider = sendEndpointProvider;
             _publishEndpointProvider = publishEndpointProvider;
             _busObservable = busObservable;
+            Topology = topology;
             _hosts = hosts;
 
             _publishEndpoint = new Lazy<IPublishEndpoint>(() => publishEndpointProvider.CreatePublishEndpoint(address));
@@ -116,6 +118,8 @@ namespace MassTransit
         }
 
         public Uri Address { get; }
+
+        public IBusTopology Topology { get; }
 
         Task<ISendEndpoint> ISendEndpointProvider.GetSendEndpoint(Uri address)
         {
@@ -219,7 +223,12 @@ namespace MassTransit
 
         public ConnectHandle ConnectPublishObserver(IPublishObserver observer)
         {
-            return _publishEndpointProvider.ConnectPublishObserver(observer);
+            return new MultipleConnectHandle(_hosts.Select(h => h.ConnectPublishObserver(observer)));
+        }
+
+        public ConnectHandle ConnectSendObserver(ISendObserver observer)
+        {
+            return new MultipleConnectHandle(_hosts.Select(h => h.ConnectSendObserver(observer)));
         }
 
         void IProbeSite.Probe(ProbeContext context)
@@ -232,11 +241,6 @@ namespace MassTransit
 
             foreach (var host in _hosts)
                 host.Probe(scope);
-        }
-
-        public ConnectHandle ConnectSendObserver(ISendObserver observer)
-        {
-            return _sendEndpointProvider.ConnectSendObserver(observer);
         }
 
         void IDisposable.Dispose()

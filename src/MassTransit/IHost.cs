@@ -1,4 +1,4 @@
-// Copyright 2007-2016 Chris Patterson, Dru Sellers, Travis Smith, et. al.
+// Copyright 2007-2017 Chris Patterson, Dru Sellers, Travis Smith, et. al.
 //  
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use
 // this file except in compliance with the License. You may obtain a copy of the 
@@ -15,6 +15,7 @@ namespace MassTransit
     using System;
     using GreenPipes;
     using Pipeline;
+    using Topology;
     using Transports;
 
 
@@ -25,6 +26,8 @@ namespace MassTransit
         IConsumeMessageObserverConnector,
         IConsumeObserverConnector,
         IReceiveObserverConnector,
+        IPublishObserverConnector,
+        ISendObserverConnector,
         IReceiveEndpointObserverConnector,
         IProbeSite
     {
@@ -32,5 +35,7 @@ namespace MassTransit
         /// An address that identifies the host
         /// </summary>
         Uri Address { get; }
+        
+        IHostTopology Topology { get; }
     }
 }
